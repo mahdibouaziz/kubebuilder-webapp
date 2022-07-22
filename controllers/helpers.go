@@ -82,7 +82,7 @@ func (r *GuestbookReconciler) desiredService(book webappv1.Guestbook) (corev1.Se
 				},
 			},
 			Selector: map[string]string{"guestbook": book.Name},
-			Type:     corev1.ServiceTypeNodePort,
+			Type:     corev1.ServiceTypeLoadBalancer,
 		},
 	}
 
