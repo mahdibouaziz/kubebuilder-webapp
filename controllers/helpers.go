@@ -11,6 +11,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	webappv1 "github.com/mahdibouaziz/kubebuilder-webapp/api/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 )
 
 func (r *GuestbookReconciler) desiredDeployment(book webappv1.Guestbook, redis webappv1.Redis) (appsv1.Deployment, error) {
@@ -107,4 +108,128 @@ func urlForService(svc corev1.Service, port int32) string {
 	}
 
 	return fmt.Sprintf("http://%s", net.JoinHostPort(host, fmt.Sprintf("%v", port)))
+}
+
+// REDIS PART
+func (r *RedisReconciler) leaderDeployment(redis webappv1.Redis) (appsv1.Deployment, error) {
+	defOne := int32(1)
+	depl := appsv1.Deployment{
+		TypeMeta: metav1.TypeMeta{APIVersion: appsv1.SchemeGroupVersion.String(), Kind: "Deployment"},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      redis.Name + "-leader",
+			Namespace: redis.Namespace,
+		},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: &defOne,
+			Selector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{"redis": redis.Name, "role": "leader"},
+			},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{"redis": redis.Name, "role": "leader"},
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "leader",
+							Image: "k8s.gcr.io/redis:e2e",
+							Ports: []corev1.ContainerPort{
+								{ContainerPort: 6379, Name: "redis", Protocol: "TCP"},
+							},
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceCPU:    *resource.NewMilliQuantity(100, resource.DecimalSI),
+									corev1.ResourceMemory: *resource.NewMilliQuantity(100000, resource.BinarySI),
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	if err := ctrl.SetControllerReference(&redis, &depl, r.Scheme); err != nil {
+		return depl, err
+	}
+
+	return depl, nil
+}
+
+func (r *RedisReconciler) followerDeployment(redis webappv1.Redis) (appsv1.Deployment, error) {
+	depl := appsv1.Deployment{
+		TypeMeta: metav1.TypeMeta{APIVersion: appsv1.SchemeGroupVersion.String(), Kind: "Deployment"},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      redis.Name + "-follower",
+			Namespace: redis.Namespace,
+		},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: redis.Spec.FollowerReplicas, // won't be nil because defaulting
+			Selector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{"redis": redis.Name, "role": "follower"},
+			},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{"redis": redis.Name, "role": "follower"},
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "follower",
+							Image: "gcr.io/google_samples/gb-redisslave:v3",
+							Ports: []corev1.ContainerPort{
+								{ContainerPort: 6379, Name: "redis", Protocol: "TCP"},
+							},
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceCPU:    *resource.NewMilliQuantity(100, resource.DecimalSI),
+									corev1.ResourceMemory: *resource.NewMilliQuantity(100000, resource.BinarySI),
+								},
+							},
+
+							// NB(directxman12): sorry about these environment
+							// variable names -- they're what the official
+							// sample uses (since they used to be the official
+							// terms for Redis).  We should change them now that Redis
+							// has changed as well.
+							Env: []corev1.EnvVar{
+								{Name: "GET_HOSTS_FROM", Value: "env"},
+								{Name: "REDIS_MASTER_SERVICE_HOST", Value: redis.Name + "-leader"},
+								{Name: "REDIS_SLAVE_SERVICE_HOST", Value: redis.Name + "-follower"},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	if err := ctrl.SetControllerReference(&redis, &depl, r.Scheme); err != nil {
+		return depl, err
+	}
+
+	return depl, nil
+}
+
+func (r *RedisReconciler) desiredService(redis webappv1.Redis, role string) (corev1.Service, error) {
+	svc := corev1.Service{
+		TypeMeta: metav1.TypeMeta{APIVersion: corev1.SchemeGroupVersion.String(), Kind: "Service"},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      redis.Name + "-" + role,
+			Namespace: redis.Namespace,
+		},
+		Spec: corev1.ServiceSpec{
+			Ports: []corev1.ServicePort{
+				{Name: "redis", Port: 6379, Protocol: "TCP", TargetPort: intstr.FromString("redis")},
+			},
+			Selector: map[string]string{"redis": redis.Name, "role": role},
+		},
+	}
+
+	// always set the controller reference so that we know which object owns this.
+	if err := ctrl.SetControllerReference(&redis, &svc, r.Scheme); err != nil {
+		return svc, err
+	}
+
+	return svc, nil
 }
