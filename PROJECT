@@ -3,4 +3,14 @@ layout:
 - go.kubebuilder.io/v3
 projectName: kubebuilder-webapp
 repo: github.com/mahdibouaziz/kubebuilder-webapp
+resources:
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: example.com
+  group: webapp
+  kind: Guestbook
+  path: github.com/mahdibouaziz/kubebuilder-webapp/api/v1
+  version: v1
 version: "3"
