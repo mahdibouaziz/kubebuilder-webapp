@@ -51,6 +51,58 @@ func (r *GuestbookReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 	// TODO(user): your logic here
 
+	// Get the root object (GuestBook)
+	var book webappv1.Guestbook
+	if err := r.Get(ctx, req.NamespacedName, &book); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	// Get the depending objects (Redis)
+	var redis webappv1.Redis
+	// create a NamespceName object (key) to use it to get the redis object
+	redisName := client.ObjectKey{Namespace: req.Name, Name: book.Spec.RedisName}
+	if err := r.Get(ctx, redisName, &redis); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	// use the informatin from the Redis status and our guestbook spec
+	// to contruct the deployment to run our guestbook frontend
+	deployment, err := r.desiredDeployment(book, redis)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	// use the information from the guestbook spec to construct a service that exposes that deployment
+	svc, err := r.desiredService(book)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	// submit those changes to the API Server
+	applyOpts := []client.PatchOption{
+		client.ForceOwnership,
+		client.FieldOwner("guestbook-controller"),
+	}
+
+	err = r.Patch(ctx, &deployment, client.Apply, applyOpts...)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	err = r.Patch(ctx, &svc, client.Apply, applyOpts...)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	// update the status
+	book.Status.URL = urlForService(svc, book.Spec.Frontend.ServingPort)
+	err = r.Status().Update(ctx, &book)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	// return the result value
+	log.Log.Info("reconciled guestbook")
 	return ctrl.Result{}, nil
 }
 
