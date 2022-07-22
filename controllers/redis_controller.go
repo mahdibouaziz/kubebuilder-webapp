@@ -52,7 +52,7 @@ func (r *RedisReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	_ = log.FromContext(ctx)
 
 	// TODO(user): your logic here
-	log.Log.Info("reconciling redis")
+	log.Log.Info("Inside Redis reconciler")
 
 	var redis webappv1.Redis
 	if err := r.Get(ctx, req.NamespacedName, &redis); err != nil {

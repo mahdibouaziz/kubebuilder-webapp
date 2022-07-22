@@ -51,6 +51,8 @@ type GuestbookReconciler struct {
 func (r *GuestbookReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = log.FromContext(ctx)
 
+	log.Log.Info("Inside guestbook reconciler")
+
 	// TODO(user): your logic here
 
 	// Get the root object (GuestBook)
